@@ -16,6 +16,7 @@ declare(strict_types=1);
 
 namespace ApacheSolrForTypo3\Solr\Routing;
 
+use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Message\UriInterface;
 use Psr\Log\LoggerAwareInterface;
 use Psr\Log\LoggerAwareTrait;
@@ -204,10 +205,17 @@ class RoutingService implements LoggerAwareInterface
         }
 
         $newQueryParams = [];
-
         foreach ($queryParams as $queryParamName => $queryParamValue) {
+            // A merge is needed!
             if (!isset($queryParameterMapSwitched[$queryParamName])) {
-                $newQueryParams[$queryParamName] = $queryParamValue;
+                if (isset($newQueryParams[$queryParamName])) {
+                    $newQueryParams[$queryParamName] = array_merge_recursive(
+                        $newQueryParams[$queryParamName],
+                        $queryParamValue
+                    );
+                } else {
+                    $newQueryParams[$queryParamName] = $queryParamValue;
+                }
                 continue;
             }
             if (!isset($newQueryParams[$this->getPluginNamespace()])) {
@@ -605,6 +613,36 @@ class RoutingService implements LoggerAwareInterface
     }
 
     /**
+     * Add heading slash to given slug
+     *
+     * @param string $slug
+     * @return string
+     */
+    public function addHeadingSlash(string $slug): string
+    {
+        if (mb_substr($slug, 0, 1) === '/') {
+            return $slug;
+        }
+
+        return '/' . $slug;
+    }
+
+    /**
+     * Remove heading slash from given slug
+     *
+     * @param string $slug
+     * @return string
+     */
+    public function removeHeadingSlash(string $slug): string
+    {
+        if (mb_substr($slug, 0, 1) !== '/') {
+            return $slug;
+        }
+
+        return mb_substr($slug, 1, mb_strlen($slug) - 1);
+    }
+
+    /**
      * Retrieve the site configuration by URI
      *
      * @param UriInterface $uri
@@ -664,6 +702,45 @@ class RoutingService implements LoggerAwareInterface
         } catch (\InvalidArgumentException $argumentException) {
             return null;
         }
+    }
+
+    /**
+     * @param SiteLanguage $language
+     * @param string $path
+     * @return bool
+     */
+    public function containsPathLanguageArgument(SiteLanguage $language, string $path): bool
+    {
+        if ($language->getBase()->getPath() === '/') {
+            return false;
+        }
+
+        $pathLength = mb_strlen($language->getBase()->getPath());
+        $languagePath = mb_substr($path, 0, $pathLength);
+        return $languagePath === $language->getBase()->getPath();
+    }
+
+    /**
+     * In order to search for a path, a possible language prefix need to remove
+     *
+     * @param SiteLanguage $language
+     * @param string $path
+     * @return string
+     */
+    public function stripLanguagePrefixFromPath(SiteLanguage $language, string $path): string
+    {
+        if ($language->getBase()->getPath() === '/') {
+            return $path;
+        }
+
+        $pathLength = mb_strlen($language->getBase()->getPath());
+
+        $path = mb_substr($path, $pathLength, mb_strlen($path) - $pathLength);
+        if (mb_substr($path, 0, 1) !== '/') {
+            $path = '/' . $path;
+        }
+
+        return $path;
     }
 
     /**
@@ -747,6 +824,97 @@ class RoutingService implements LoggerAwareInterface
         }
 
         return $language;
+    }
+
+    /**
+     * Enrich the current query Params with data from path information
+     *
+     * @param ServerRequestInterface $request
+     * @param array $arguments
+     * @param array $parameters
+     * @return ServerRequestInterface
+     */
+    public function addPathArgumentsToQuery(
+        ServerRequestInterface $request,
+        array $arguments,
+        array $parameters
+    ): ServerRequestInterface {
+        $queryParams = $request->getQueryParams();
+        foreach ($arguments as $fieldName => $queryPath) {
+            // Skip if there is no parameter
+            if (!isset($parameters[$fieldName])) {
+                continue;
+            }
+            $pathElements = explode('/', $queryPath);
+
+            if (!empty($this->pluginNamespace)) {
+                array_unshift($pathElements, $this->pluginNamespace);
+            }
+
+            $queryParams = $this->processUriPathArgument(
+                $queryParams,
+                $fieldName,
+                $parameters,
+                $pathElements
+            );
+        }
+
+        return $request->withQueryParams($queryParams);
+    }
+
+    /**
+     * Converts path segment information into query parameters
+     *
+     * Example:
+     * /products/household
+     *
+     * tx_solr:
+     *      filter:
+     *          - type:household
+     *
+     * @param array $queryParams
+     * @param string $fieldName
+     * @param array $parameters
+     * @param array $pathElements
+     * @return array
+     */
+    protected function processUriPathArgument(
+        array $queryParams,
+        string $fieldName,
+        array $parameters,
+        array $pathElements
+    ): array {
+        $queryKey = array_shift($pathElements);
+        $queryKey = (string)$queryKey;
+
+        $tmpQueryKey = $queryKey;
+        if (strpos($queryKey, '-') !== false) {
+            [$tmpQueryKey, $filterName] = explode('-', $tmpQueryKey, 2);
+        }
+        if (!isset($queryParams[$tmpQueryKey]) || $queryParams[$tmpQueryKey] === null) {
+            $queryParams[$tmpQueryKey] = [];
+        }
+
+        if (strpos($queryKey, '-') !== false) {
+            [$queryKey, $filterName] = explode('-', $queryKey, 2);
+            // explode multiple values
+            $values = $this->pathFacetStringToArray($parameters[$fieldName]);
+            sort($values);
+
+            // @TODO: Support URL data bag
+            foreach ($values as $value) {
+                $queryParams[$queryKey][] = $filterName . ':' . $value;
+            }
+        } else {
+            $queryParams[$queryKey] = $this->processUriPathArgument(
+                $queryParams[$queryKey],
+                $fieldName,
+                $parameters,
+                $pathElements
+            );
+        }
+
+        return $queryParams;
     }
 
     /**
