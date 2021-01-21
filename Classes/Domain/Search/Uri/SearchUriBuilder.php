@@ -375,8 +375,10 @@ class SearchUriBuilder
 
         $routingConfigurations = $this->routingService
             ->fetchEnhancerByPageUid($pageUid);
-        $this->routingService = $this->routingService->withPathArguments($routingConfigurations[0]['_arguments']);
         $enhancedRouting = count($routingConfigurations) > 0;
+        if ($enhancedRouting && is_array($routingConfigurations[0]['_arguments'])) {
+            $this->routingService = $this->routingService->withPathArguments($routingConfigurations[0]['_arguments']);
+        }
         /* @var Uri $uri */
         $uri = GeneralUtility::makeInstance(
             Uri::class,
