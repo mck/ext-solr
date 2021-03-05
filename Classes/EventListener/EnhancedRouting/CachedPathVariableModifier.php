@@ -16,7 +16,7 @@ declare(strict_types=1);
 
 namespace ApacheSolrForTypo3\Solr\EventListener\EnhancedRouting;
 
-use ApacheSolrForTypo3\Solr\Event\EnhancedRouting\BeforeProcessCachedVariablesEvent;
+use ApacheSolrForTypo3\Solr\Event\Routing\BeforeProcessCachedVariablesEvent;
 use ApacheSolrForTypo3\Solr\Routing\RoutingService;
 use Psr\Http\Message\UriInterface;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
@@ -30,6 +30,9 @@ class CachedPathVariableModifier
 {
     public function __invoke(BeforeProcessCachedVariablesEvent $event): void
     {
+        if (!$event->hasRouting()) {
+            return;
+        }
         $pathVariables = $this->getPathVariablesFromUri($event->getUri());
 
         // No path variables exists .. skip processing
