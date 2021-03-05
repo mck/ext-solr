@@ -430,7 +430,7 @@ class RoutingService implements LoggerAwareInterface
         }
 
         $queryParams[$this->getPluginNamespace()]['filter'] =
-            $this->contactFilterValues($queryParams[$this->getPluginNamespace()]['filter']);
+            $this->concatFilterValues($queryParams[$this->getPluginNamespace()]['filter']);
 
         return $this->cleanUpQueryParameters($queryParams);
     }
@@ -441,7 +441,7 @@ class RoutingService implements LoggerAwareInterface
      * @param array $filterArray
      * @return array
      */
-    public function contactFilterValues(array $filterArray): array
+    public function concatFilterValues(array $filterArray): array
     {
         if (empty($filterArray) || !$this->shouldConcatQueryParameters()) {
             return $filterArray;
